@@ -176,7 +176,7 @@ def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
                         </h1>
                         <p style="margin: 4px 0 0 0; font-size: 13px;
                             color: #ddd;">
-                            {date} &bull; powered by Llama 3.3 70B via Groq
+                            {date} &bull; powered by Groq
                         </p>
                     </td>
                 </tr>
