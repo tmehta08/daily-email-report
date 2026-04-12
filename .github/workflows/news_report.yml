@@ -1,0 +1,31 @@
+name: Daily News Report
+
+on:
+  schedule:
+    # Runs every day at 7:00 AM UTC (adjust for your timezone)
+    - cron: "0 7 * * *"
+  workflow_dispatch: # allows you to run it manually from GitHub
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama and pull model
+        run: |
+          ollama serve &
+          sleep 5
+          ollama pull qwen3:1.7b
+
+      - name: Send news report
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: uv run news_report.py
