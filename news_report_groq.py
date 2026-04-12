@@ -1,17 +1,19 @@
 import json
 import os
 import smtplib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from email.mime.text import MIMEText
 
 import feedparser
-import ollama
 from dotenv import load_dotenv
+from groq import Groq
 
 # --- Load .env file (locally), falls back to env vars (GitHub Actions) ---
 load_dotenv()
 GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
+client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 # --- RSS feeds to pull from ---
 NEWS_FEEDS = [
@@ -25,7 +27,7 @@ STOCK_FEEDS = [
 ]
 
 
-def fetch_from_feeds(feeds: list[str], limit: int = 10) -> list[dict]:
+def fetch_from_feeds(feeds: list[str], limit: int = 20) -> list[dict]:
     """Pull recent headlines from RSS feeds."""
     articles = []
     for url in feeds:
@@ -39,65 +41,66 @@ def fetch_from_feeds(feeds: list[str], limit: int = 10) -> list[dict]:
     return articles
 
 
+SYSTEM_PROMPT = (
+    "You write like a sharp, well-informed friend who works in finance. "
+    "Your tone is chill but direct — no fluff, no hype, no corporate speak. "
+    "You're professional enough to trust, casual enough to enjoy reading "
+    "over morning coffee. Keep it real and informative."
+)
+
+
+def ask_groq(prompt: str) -> str:
+    """Send a prompt to Groq and return the response."""
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.5,
+    )
+    return response.choices[0].message.content
+
+
 def pick_top_5(articles: list[dict]) -> list[dict]:
-    """Use the local LLM to pick and summarize the top 5 stories."""
+    """Use Groq to pick and summarize the top 5 stories."""
     headlines = "\n".join(
         f"- {a['title']} [source: {a['source']}] [link: {a['link']}]"
         for a in articles
     )
 
-    response = ollama.chat(
-        model="qwen3:1.7b",
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    "Here are today's news headlines:\n\n"
-                    f"{headlines}\n\n"
-                    "Pick the 5 most important and interesting stories. "
-                    "Return ONLY valid JSON — no other text, no thinking "
-                    "tags, no markdown. Use this exact format:\n"
-                    '[{"headline": "...", "summary": "...", "link": "...'
-                    '"}]\n'
-                    "Each summary should be 3 sentences on why it "
-                    "matters."
-                ),
-            }
-        ],
+    content = ask_groq(
+        "Here are today's news headlines:\n\n"
+        f"{headlines}\n\n"
+        "Pick the 5 most important and interesting stories. "
+        "Return ONLY valid JSON — no other text, no markdown. "
+        "Use this exact format:\n"
+        '[{"headline": "...", "summary": "...", "link": "..."}]\n'
+        "Each summary should be 2 sentences on why it matters."
     )
 
-    return _parse_json_response(response.message.content)
+    return _parse_json_response(content)
 
 
 def pick_top_5_stocks(articles: list[dict]) -> list[dict]:
-    """Use the local LLM to pick 5 stocks to watch."""
+    """Use Groq to pick 5 stocks to watch."""
     headlines = "\n".join(
         f"- {a['title']} [source: {a['source']}]"
         for a in articles
     )
 
-    response = ollama.chat(
-        model="qwen3:1.7b",
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    "Here are today's US stock market headlines:\n\n"
-                    f"{headlines}\n\n"
-                    "Based on these headlines, pick 5 US stocks to "
-                    "watch today. Return ONLY valid JSON — no other "
-                    "text, no thinking tags, no markdown. Use this "
-                    "exact format:\n"
-                    '[{"ticker": "AAPL", "company": "Apple", '
-                    '"reason": "..."}]\n'
-                    "Each reason should be 3 sentences on why this "
-                    "stock is interesting today."
-                ),
-            }
-        ],
+    content = ask_groq(
+        "Here are today's US stock market headlines:\n\n"
+        f"{headlines}\n\n"
+        "Based on these headlines, pick 10 US stocks to watch today. "
+        "Return ONLY valid JSON — no other text, no markdown. "
+        "Use this exact format:\n"
+        '[{"ticker": "AAPL", "company": "Apple", "reason": "..."}]\n'
+        "Each reason should be 3 sentences on why this stock is "
+        "interesting today."
     )
 
-    return _parse_json_response(response.message.content)
+    return _parse_json_response(content)
 
 
 def _parse_json_response(content: str) -> list[dict]:
@@ -106,7 +109,11 @@ def _parse_json_response(content: str) -> list[dict]:
     if content.startswith("```"):
         content = content.split("\n", 1)[1]
         content = content.rsplit("```", 1)[0]
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        print(f"Failed to parse LLM response as JSON:\n{content}")
+        raise
 
 
 def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
@@ -162,14 +169,14 @@ def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
                 overflow: hidden; box-shadow: 0 1px 3px
                 rgba(0,0,0,0.1);">
                 <tr>
-                    <td style="background: #1a1a1a; padding: 20px 24px;">
+                    <td style="background: #7c3aed; padding: 20px 24px;">
                         <h1 style="margin: 0; font-size: 20px;
                             color: #fff;">
                             Daily News Briefing
                         </h1>
                         <p style="margin: 4px 0 0 0; font-size: 13px;
-                            color: #999;">
-                            {date}
+                            color: #ddd;">
+                            {date} &bull; powered by Llama 3.3 70B via Groq
                         </p>
                     </td>
                 </tr>
@@ -195,7 +202,7 @@ def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
                     <td style="padding: 16px 24px; background: #fafafa;
                         border-top: 1px solid #eee; font-size: 12px;
                         color: #999; text-align: center;">
-                        Generated by your AI agent with Ollama + qwen3
+                        Generated by your AI agent with Groq + Llama 3.3
                     </td>
                 </tr>
             </table>
@@ -205,12 +212,15 @@ def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
     </html>"""
 
 
+RECIPIENTS = [GMAIL_ADDRESS, "jmmeht01@yahoo.com"]
+
+
 def send_email(subject: str, html_body: str):
     """Send an HTML email via Gmail SMTP."""
     msg = MIMEText(html_body, "html")
     msg["Subject"] = subject
     msg["From"] = GMAIL_ADDRESS
-    msg["To"] = GMAIL_ADDRESS
+    msg["To"] = ", ".join(RECIPIENTS)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
@@ -221,20 +231,27 @@ def main():
     today = datetime.now().strftime("%B %d, %Y")
     print(f"Fetching headlines for {today}...")
 
-    articles = fetch_from_feeds(NEWS_FEEDS)
-    print(f"Got {len(articles)} news articles. Picking top 5...")
+    # Fetch both RSS feeds in parallel
+    with ThreadPoolExecutor() as pool:
+        news_future = pool.submit(fetch_from_feeds, NEWS_FEEDS)
+        stock_future = pool.submit(fetch_from_feeds, STOCK_FEEDS)
+        articles = news_future.result()
+        stock_articles = stock_future.result()
 
-    stories = pick_top_5(articles)
-    print(f"Got {len(stories)} stories.")
+    print(f"Got {len(articles)} news + {len(stock_articles)} stock articles.")
+    print("Asking AI to pick top 10 of each (in parallel)...")
 
-    stock_articles = fetch_from_feeds(STOCK_FEEDS)
-    print(f"Got {len(stock_articles)} stock headlines. Picking top 5...")
+    # Both LLM calls in parallel — this is the big speedup
+    with ThreadPoolExecutor() as pool:
+        stories_future = pool.submit(pick_top_5, articles)
+        stocks_future = pool.submit(pick_top_5_stocks, stock_articles)
+        stories = stories_future.result()
+        stocks = stocks_future.result()
 
-    stocks = pick_top_5_stocks(stock_articles)
-    print(f"Got {len(stocks)} stocks. Building email...")
+    print(f"Got {len(stories)} stories + {len(stocks)} stocks. Building email...")
 
     html = build_html(stories, stocks, today)
-    subject = f"Daily News Briefing - {today}"
+    subject = f"News AI Agent by Tanmay - {today}"
     send_email(subject, html)
     print(f"Email sent to {GMAIL_ADDRESS}!")
 
