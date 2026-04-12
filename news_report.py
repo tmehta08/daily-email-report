@@ -14,18 +14,23 @@ GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 
 # --- RSS feeds to pull from ---
-FEEDS = [
+NEWS_FEEDS = [
     "https://news.google.com/rss",
     "https://feeds.bbci.co.uk/news/world/rss.xml",
 ]
 
+STOCK_FEEDS = [
+    "https://finance.yahoo.com/news/rssindex",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US",
+]
 
-def fetch_headlines() -> list[dict]:
+
+def fetch_from_feeds(feeds: list[str], limit: int = 10) -> list[dict]:
     """Pull recent headlines from RSS feeds."""
     articles = []
-    for url in FEEDS:
+    for url in feeds:
         feed = feedparser.parse(url)
-        for entry in feed.entries[:10]:
+        for entry in feed.entries[:limit]:
             articles.append({
                 "title": entry.get("title", ""),
                 "link": entry.get("link", ""),
@@ -54,22 +59,57 @@ def pick_top_5(articles: list[dict]) -> list[dict]:
                     "tags, no markdown. Use this exact format:\n"
                     '[{"headline": "...", "summary": "...", "link": "...'
                     '"}]\n'
-                    "Each summary should be 1-2 sentences on why it "
+                    "Each summary should be 3 sentences on why it "
                     "matters."
                 ),
             }
         ],
     )
 
-    content = response.message.content.strip()
-    # Strip markdown code fences if present
+    return _parse_json_response(response.message.content)
+
+
+def pick_top_5_stocks(articles: list[dict]) -> list[dict]:
+    """Use the local LLM to pick 5 stocks to watch."""
+    headlines = "\n".join(
+        f"- {a['title']} [source: {a['source']}]"
+        for a in articles
+    )
+
+    response = ollama.chat(
+        model="qwen3:1.7b",
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "Here are today's US stock market headlines:\n\n"
+                    f"{headlines}\n\n"
+                    "Based on these headlines, pick 5 US stocks to "
+                    "watch today. Return ONLY valid JSON — no other "
+                    "text, no thinking tags, no markdown. Use this "
+                    "exact format:\n"
+                    '[{"ticker": "AAPL", "company": "Apple", '
+                    '"reason": "..."}]\n'
+                    "Each reason should be 3 sentences on why this "
+                    "stock is interesting today."
+                ),
+            }
+        ],
+    )
+
+    return _parse_json_response(response.message.content)
+
+
+def _parse_json_response(content: str) -> list[dict]:
+    """Parse JSON from LLM response, stripping code fences if needed."""
+    content = content.strip()
     if content.startswith("```"):
         content = content.split("\n", 1)[1]
         content = content.rsplit("```", 1)[0]
     return json.loads(content)
 
 
-def build_html(stories: list[dict], date: str) -> str:
+def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
     """Build a clean HTML email."""
     items = ""
     for i, s in enumerate(stories, 1):
@@ -89,6 +129,25 @@ def build_html(stories: list[dict], date: str) -> str:
                    text-decoration: none;">
                     Read full story &rarr;
                 </a>
+            </td>
+        </tr>"""
+
+    stock_items = ""
+    for s in stocks:
+        stock_items += f"""
+        <tr>
+            <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
+                <span style="font-size: 16px; font-weight: bold;
+                    color: #0d9488;">
+                    {s['ticker']}
+                </span>
+                <span style="font-size: 14px; color: #888;">
+                    &mdash; {s['company']}
+                </span>
+                <p style="margin: 4px 0 0 0; font-size: 14px;
+                    color: #555; line-height: 1.4;">
+                    {s['reason']}
+                </p>
             </td>
         </tr>"""
 
@@ -117,6 +176,19 @@ def build_html(stories: list[dict], date: str) -> str:
                 <tr>
                     <td style="padding: 8px 24px 24px 24px;">
                         <table width="100%">{items}</table>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="background: #0d9488; padding: 16px 24px;">
+                        <h2 style="margin: 0; font-size: 18px;
+                            color: #fff;">
+                            Stocks to Watch
+                        </h2>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 24px 24px 24px;">
+                        <table width="100%">{stock_items}</table>
                     </td>
                 </tr>
                 <tr>
@@ -149,13 +221,19 @@ def main():
     today = datetime.now().strftime("%B %d, %Y")
     print(f"Fetching headlines for {today}...")
 
-    articles = fetch_headlines()
-    print(f"Got {len(articles)} articles. Asking AI to pick top 5...")
+    articles = fetch_from_feeds(NEWS_FEEDS)
+    print(f"Got {len(articles)} news articles. Picking top 5...")
 
     stories = pick_top_5(articles)
-    print(f"Got {len(stories)} stories. Building email...")
+    print(f"Got {len(stories)} stories.")
 
-    html = build_html(stories, today)
+    stock_articles = fetch_from_feeds(STOCK_FEEDS)
+    print(f"Got {len(stock_articles)} stock headlines. Picking top 5...")
+
+    stocks = pick_top_5_stocks(stock_articles)
+    print(f"Got {len(stocks)} stocks. Building email...")
+
+    html = build_html(stories, stocks, today)
     subject = f"Daily News Briefing - {today}"
     send_email(subject, html)
     print(f"Email sent to {GMAIL_ADDRESS}!")
