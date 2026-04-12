@@ -212,7 +212,7 @@ def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
     </html>"""
 
 
-RECIPIENTS = [GMAIL_ADDRESS, "jmmeht01@yahoo.com"]
+RECIPIENTS = os.environ["RECIPIENTS"].split(",")
 
 
 def send_email(subject: str, html_body: str):
