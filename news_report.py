@@ -4,10 +4,12 @@ import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
 
-import feedparser  # third-party
-import ollama  # third-party
+import feedparser
+import ollama
+from dotenv import load_dotenv
 
-# --- Config from environment ---
+# --- Load .env file (locally), falls back to env vars (GitHub Actions) ---
+load_dotenv()
 GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 
