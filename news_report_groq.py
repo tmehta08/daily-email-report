@@ -104,16 +104,39 @@ def pick_top_5_stocks(articles: list[dict]) -> list[dict]:
 
 
 def _parse_json_response(content: str) -> list[dict]:
-    """Parse JSON from LLM response, stripping code fences if needed."""
+    """Parse JSON from LLM response, with cleanup for common LLM quirks."""
+    import re
+
     content = content.strip()
     if content.startswith("```"):
         content = content.split("\n", 1)[1]
         content = content.rsplit("```", 1)[0]
+
+    # Try parsing as-is first
     try:
         return json.loads(content)
     except json.JSONDecodeError:
-        print(f"Failed to parse LLM response as JSON:\n{content}")
-        raise
+        pass
+
+    # Fix common LLM quirk: missing closing } on last object
+    content = re.sub(r'"\]\s*\]?\s*$', '"}]', content.strip())
+
+    # Extract the first valid JSON array by trying progressively
+    start = content.find("[")
+    if start == -1:
+        print(f"No JSON array found in response:\n{content}")
+        return []
+
+    # Try each ']' from left to right until one parses
+    for match in re.finditer(r"\]", content[start:]):
+        candidate = content[start : start + match.end()]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+
+    print(f"Failed to parse LLM response as JSON:\n{content}")
+    return []
 
 
 def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:

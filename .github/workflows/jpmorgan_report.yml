@@ -1,0 +1,23 @@
+name: JPMorgan Daily Brief
+
+on:
+  schedule:
+    # Runs every day at 6:00 AM PST (1:00 PM UTC)
+    - cron: "0 13 * * *"
+  workflow_dispatch: # allows you to run it manually from GitHub
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Send JPMorgan report
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: uv run jpmorgan_report.py
