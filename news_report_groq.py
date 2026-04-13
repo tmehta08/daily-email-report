@@ -266,7 +266,7 @@ def send_email(subject: str, html_body: str):
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.send_message(msg)
+        server.sendmail(GMAIL_ADDRESS, RECIPIENTS, msg.as_string())
 
 
 def main():
