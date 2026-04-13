@@ -1,7 +1,7 @@
 [project]
 name = "daily-email-report"
 version = "0.1.0"
-description = "Add your description here"
+description = "This project creates a daily headlines report and stock market report for email delivery."
 readme = "README.md"
 requires-python = ">=3.12.11"
 dependencies = [
