@@ -13,7 +13,7 @@ from groq import Groq
 load_dotenv()
 GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
-JPM_RECIPIENT = GMAIL_ADDRESS  # only sent to you
+JPM_RECIPIENT = GMAIL_ADDRESS
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 # --- RSS feeds focused on JPMorgan / finance ---
@@ -30,7 +30,7 @@ SYSTEM_PROMPT = (
     "over morning coffee. Keep it real and informative. "
     "The reader works at JP Morgan, so focus on what matters to them — "
     "company news, leadership moves, earnings, deals, regulation, "
-    "and competitive landscape."
+    "and competitive landscape. Provide latest headline about company"
 )
 
 
