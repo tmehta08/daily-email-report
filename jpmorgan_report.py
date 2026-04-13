@@ -24,6 +24,16 @@ FEEDS = [
     "https://news.google.com/rss/search?q=Jamie+Dimon&hl=en-US&gl=US&ceid=US:en",
 ]
 
+# --- Dedicated competitor / industry feeds ---
+COMPETITOR_FEEDS = [
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GS&region=US&lang=en-US",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=MS&region=US&lang=en-US",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=C&region=US&lang=en-US",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=BAC&region=US&lang=en-US",
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=WFC&region=US&lang=en-US",
+    "https://news.google.com/rss/search?q=Goldman+Sachs+OR+Morgan+Stanley+OR+Citigroup+OR+%22Bank+of+America%22+OR+%22Wells+Fargo%22&hl=en-US&gl=US&ceid=US:en",
+]
+
 SYSTEM_PROMPT = (
     "You write like a sharp, well-informed colleague at a major bank. "
     "Your tone is chill but direct — no fluff, no hype, no corporate speak. "
@@ -31,16 +41,17 @@ SYSTEM_PROMPT = (
     "over morning coffee. Keep it real and informative. "
     "The reader works at JP Morgan, so focus on what matters to them — "
     "company news, leadership moves, earnings, deals, regulation, "
-    "and competitive landscape. Provide latest headline about company"
+    "and competitive landscape. Provide latest headline about company and give some "
+    "news, not just general descriptions"
 )
 
 
-def fetch_articles() -> list[dict]:
-    """Pull recent headlines from JPM-focused RSS feeds."""
+def fetch_from_feeds(feeds: list[str], limit: int = 15) -> list[dict]:
+    """Pull recent headlines from a list of RSS feeds."""
     articles = []
-    for url in FEEDS:
+    for url in feeds:
         feed = feedparser.parse(url)
-        for entry in feed.entries[:15]:
+        for entry in feed.entries[:limit]:
             articles.append({
                 "title": entry.get("title", ""),
                 "link": entry.get("link", ""),
@@ -98,23 +109,27 @@ def pick_top_stories(articles: list[dict]) -> list[dict]:
 
 
 def pick_competitor_watch(articles: list[dict]) -> list[dict]:
-    """Identify competitor and industry moves from the headlines."""
+    """Identify competitor and industry moves from dedicated competitor feeds."""
     headlines = "\n".join(
-        f"- {a['title']} [source: {a['source']}]"
+        f"- {a['title']} [source: {a['source']}] [link: {a['link']}]"
         for a in articles
     )
 
     content = ask_groq(
-        "Here are today's headlines related to JP Morgan:\n\n"
+        "Here are today's latest headlines about JPMorgan's competitors "
+        "and the banking industry:\n\n"
         f"{headlines}\n\n"
-        "Identify up to 3 stories about competitors (Goldman Sachs, "
-        "Morgan Stanley, Citi, Bank of America, Wells Fargo) or "
-        "industry-wide trends that a JP Morgan employee should know. "
+        "Pick the 5 most important stories. For each one:\n"
+        "- Explain what happened with specifics (names, numbers, dates)\n"
+        "- Explain why it matters to someone at JP Morgan\n"
+        "- Note any competitive implications or opportunities\n"
         "Return ONLY valid JSON — no other text, no markdown. "
         "Use this exact format:\n"
-        '[{"company": "...", "headline": "...", "takeaway": "..."}]\n'
-        "Each takeaway should be 1 sentence. If there are no relevant "
-        "competitor stories, return an empty array []."
+        '[{"company": "...", "headline": "...", "detail": "...", '
+        '"jpm_impact": "...", "link": "..."}]\n'
+        "detail: 2-3 sentences with specifics on what happened. "
+        "jpm_impact: 1-2 sentences on what this means for JPMorgan. "
+        "If fewer than 5 relevant stories, return what you have."
     )
 
     return _parse_json_response(content)
@@ -192,7 +207,7 @@ def build_html(
     for s in competitors:
         comp_items += f"""
         <tr>
-            <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
+            <td style="padding: 14px 0; border-bottom: 1px solid #eee;">
                 <span style="font-size: 16px; font-weight: bold;
                     color: #1e40af;">
                     {s['company']}
@@ -200,10 +215,20 @@ def build_html(
                 <span style="font-size: 14px; color: #888;">
                     &mdash; {s['headline']}
                 </span>
-                <p style="margin: 4px 0 0 0; font-size: 14px;
-                    color: #555; line-height: 1.4;">
-                    {s['takeaway']}
+                <p style="margin: 6px 0 0 0; font-size: 14px;
+                    color: #555; line-height: 1.5;">
+                    {s.get('detail', '')}
                 </p>
+                <p style="margin: 6px 0 0 0; font-size: 13px;
+                    color: #1e40af; line-height: 1.4;
+                    font-style: italic;">
+                    JPM impact: {s.get('jpm_impact', '')}
+                </p>
+                <a href="{s.get('link', '#')}"
+                   style="font-size: 13px; color: #2563eb;
+                   text-decoration: none;">
+                    Read more &rarr;
+                </a>
             </td>
         </tr>"""
 
@@ -282,12 +307,19 @@ def main():
     today = datetime.now().strftime("%B %d, %Y")
     print(f"Fetching JPMorgan headlines for {today}...")
 
-    articles = fetch_articles()
-    print(f"Got {len(articles)} articles. Analyzing in parallel...")
+    # Fetch JPM and competitor feeds in parallel
+    with ThreadPoolExecutor() as pool:
+        jpm_future = pool.submit(fetch_from_feeds, FEEDS)
+        comp_feed_future = pool.submit(fetch_from_feeds, COMPETITOR_FEEDS)
+        articles = jpm_future.result()
+        comp_articles = comp_feed_future.result()
 
+    print(f"Got {len(articles)} JPM + {len(comp_articles)} competitor articles. Analyzing...")
+
+    # Both LLM calls in parallel
     with ThreadPoolExecutor() as pool:
         stories_future = pool.submit(pick_top_stories, articles)
-        comp_future = pool.submit(pick_competitor_watch, articles)
+        comp_future = pool.submit(pick_competitor_watch, comp_articles)
         stories = stories_future.result()
         competitors = comp_future.result()
 
