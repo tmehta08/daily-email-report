@@ -6,6 +6,7 @@ from datetime import datetime
 from email.mime.text import MIMEText
 
 import feedparser
+import groq
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -49,17 +50,29 @@ SYSTEM_PROMPT = (
 )
 
 
+MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "gemma2-9b-it",
+]
+
+
 def ask_groq(prompt: str) -> str:
-    """Send a prompt to Groq and return the response."""
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.5,
-    )
-    return response.choices[0].message.content
+    """Send a prompt to Groq, falling back to the next model on rate limit."""
+    for model in MODELS:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.5,
+            )
+            return response.choices[0].message.content
+        except groq.RateLimitError:
+            print(f"Rate limited on {model}, trying next model...")
+    raise RuntimeError("All models rate limited")
 
 
 def pick_top_5(articles: list[dict]) -> list[dict]:
