@@ -119,7 +119,13 @@ def _parse_json_response(content: str) -> list[dict]:
         pass
 
     # Fix common LLM quirk: missing closing } on last object
-    content = re.sub(r'"\]\s*\]?\s*$', '"}]', content.strip())
+    content = re.sub(r'"\s*\]\s*\]?\s*$', '"}]', content.strip())
+
+    # Retry after fix
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
 
     # Extract the first valid JSON array by trying progressively
     start = content.find("[")
