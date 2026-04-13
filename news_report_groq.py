@@ -241,7 +241,7 @@ def build_html(stories: list[dict], stocks: list[dict], date: str) -> str:
     </html>"""
 
 
-RECIPIENTS = os.environ["RECIPIENTS"].split(",")
+RECIPIENTS = [r.strip() for r in os.environ["RECIPIENTS"].split(",") if r.strip()]
 
 
 def send_email(subject: str, html_body: str):
