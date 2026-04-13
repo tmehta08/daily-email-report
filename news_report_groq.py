@@ -52,8 +52,8 @@ SYSTEM_PROMPT = (
 
 MODELS = [
     "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
     "gemma2-9b-it",
+    "llama-3.1-8b-instant",
 ]
 
 
@@ -70,9 +70,9 @@ def ask_groq(prompt: str) -> str:
                 temperature=0.5,
             )
             return response.choices[0].message.content
-        except groq.RateLimitError:
-            print(f"Rate limited on {model}, trying next model...")
-    raise RuntimeError("All models rate limited")
+        except (groq.RateLimitError, groq.APIStatusError) as e:
+            print(f"{e.__class__.__name__} on {model}, trying next model...")
+    raise RuntimeError("All models failed")
 
 
 def pick_top_5(articles: list[dict]) -> list[dict]:
